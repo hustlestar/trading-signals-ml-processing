@@ -1,0 +1,17 @@
+name: x
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - numpy
+  - pandas
+  - protobuf=3.20.1
+  - pyarrow
+  - scikit-learn
+  - scipy
+  - pip
+  - pip:
+      - bentoml==0.13.1
+      - psycopg2
+      - python-dotenv

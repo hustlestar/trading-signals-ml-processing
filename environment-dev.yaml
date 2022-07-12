@@ -1,0 +1,21 @@
+name: x-dev
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - protobuf=3.20.1
+  - numpy
+  - pandas
+  - pyarrow
+  - jupyter
+  - scikit-learn
+  - seaborn
+  - matplotlib
+  - statsmodels
+  - scipy
+  - pip
+  - pip:
+      - bentoml==0.13.1
+      - psycopg2
+      - python-dotenv
