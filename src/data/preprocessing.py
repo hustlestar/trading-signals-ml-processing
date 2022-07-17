@@ -70,6 +70,8 @@ class DataPreprocessor:
 
             # removing those which don't have -3 hours of data
             df = DataPreprocessor.remove_rows_with_less_than_3_hours(df)
+        else:
+            next(history_vol_cols)
 
         DataPreprocessor.add_change_since_1_2_3_hours_back(df)
 

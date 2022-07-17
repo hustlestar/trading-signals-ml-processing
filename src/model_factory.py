@@ -97,7 +97,7 @@ if __name__ == '__main__':
     raw_flat_data = prepare_dataset(flat_notifications_from_sql(notifications))
     data_preprocessor = DataPreprocessor(raw_flat_data, True)
     df = data_preprocessor.provide_ready_df()
-    mf = ModelFactory()
+    mf = ModelFactory(model_name="ExtraTreesClassifier")
     mf.prepare_models(df, [80, 50, 20, -10])
     # artifacts_list = [SklearnModelArtifact(k) for k in mf.trained_models.keys()]
     # model_callable = artifacts(artifacts_list)(RFCClassifierModelService)
