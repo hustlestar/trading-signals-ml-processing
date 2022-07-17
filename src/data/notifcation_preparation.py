@@ -19,11 +19,13 @@ def flat_notifications_from_json(notifications):
         "id": r["id"],
         "ticker": r["ticker"],
         "price": float(r["price"]),
-        "notification_date": r["notification_date"],
-        "highest_since_notified": float(r["highest_since_notified"] if r.get("highest_since_notified") else 0),
-        "lowest_since_notified": float(r["lowest_since_notified"] if r.get("lowest_since_notified") else 0),
+        "notification_date": r["notification_date"] if r.get("notification_date") else r.get("notificationDate"),
+        "highest_since_notified":
+            float(r["highest_since_notified"] if r.get("highest_since_notified") else float(r["highestSinceNotified"]) if r.get("highestSinceNotified") else 0),
+        "lowest_since_notified":
+            float(r["lowest_since_notified"] if r.get("lowest_since_notified") else float(r["lowestSinceNotified"]) if r.get("lowestSinceNotified") else 0),
         "basis": json.loads(r["basis"]),
-        "filter_name": r["filter_name"]
+        "filter_name": r["filter_name"] if r.get('filter_name') else r.get("filterName")
     } for r in notifications]
 
 
