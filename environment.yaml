@@ -10,6 +10,7 @@ dependencies:
   - pyarrow
   - scikit-learn
   - scipy
+  - imbalanced-learn
   - pip
   - pip:
       - bentoml==0.13.1

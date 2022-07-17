@@ -10,15 +10,17 @@ from data.notifcation_preparation import prepare_dataset, flat_notifications_fro
 
 @env(infer_pip_packages=True)
 @artifacts([
-    SklearnModelArtifact('up_30_return'),
+    SklearnModelArtifact('up_80_return'),
+    SklearnModelArtifact('up_50_return'),
+    SklearnModelArtifact('up_20_return'),
     SklearnModelArtifact('down_10_return')
 ])
-class RFCClassifierModelService(BentoService):
+class SignalClassifierModelService(BentoService):
     """
     A minimum prediction service exposing a Scikit-learn model
     """
     def __init__(self):
-        super(RFCClassifierModelService, self).__init__()
+        super(SignalClassifierModelService, self).__init__()
 
     @api(input=JsonInput(), batch=False, output=JsonOutput())
     def predict(self, notification):
@@ -28,6 +30,7 @@ class RFCClassifierModelService(BentoService):
         inference API function input
         """
         print(f"Input is notification {notification['id']}")
+        print(f"\n{notification}")
         raw_flat_data = prepare_dataset(flat_notifications_from_json([notification]))
         data_preprocessor = DataPreprocessor(raw_flat_data, False)
         ready_df = data_preprocessor.provide_ready_df()
