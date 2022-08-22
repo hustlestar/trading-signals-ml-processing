@@ -1,0 +1,15 @@
+name: train
+blocks:
+  - name: read_raw
+    steps:
+      - get_connection:
+      - execute_sql:
+        - get_connection
+        - "select"
+      - flat_notifications_from_sql:
+        - execute_sql
+      - prepare_dataset:
+        - flat_notifications_from_sql
+  - name: data_preprocessing
+    steps:
+      -

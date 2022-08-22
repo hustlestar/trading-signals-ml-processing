@@ -10,17 +10,21 @@ from data.notifcation_preparation import prepare_dataset, flat_notifications_fro
 
 @env(infer_pip_packages=True)
 @artifacts([
-    SklearnModelArtifact('up_80_return'),
-    SklearnModelArtifact('up_50_return'),
-    SklearnModelArtifact('up_20_return'),
-    SklearnModelArtifact('down_10_return')
+    SklearnModelArtifact('etc_up_80_return'),
+    SklearnModelArtifact('etc_up_50_return'),
+    SklearnModelArtifact('etc_up_20_return'),
+    SklearnModelArtifact('etc_down_10_return'),
+    SklearnModelArtifact('rfc_up_80_return'),
+    SklearnModelArtifact('rfc_up_50_return'),
+    SklearnModelArtifact('rfc_up_20_return'),
+    SklearnModelArtifact('rfc_down_10_return'),
 ])
-class SignalClassifierModelService(BentoService):
+class BagOfClassifierModelsService(BentoService):
     """
     A minimum prediction service exposing a Scikit-learn model
     """
     def __init__(self):
-        super(SignalClassifierModelService, self).__init__()
+        super(BagOfClassifierModelsService, self).__init__()
 
     @api(input=JsonInput(), batch=False, output=JsonOutput())
     def predict(self, notification):
@@ -35,8 +39,6 @@ class SignalClassifierModelService(BentoService):
         ready_df = data_preprocessor.provide_ready_df()
         print("Finished preprocessing for input")
         res = {}
-        print(self.artifacts)
-        print(dir(self.artifacts))
         for k, v in self.artifacts.items():
             print(f"Predicting using {k}")
             res[k] = v.get().predict(ready_df)[0]

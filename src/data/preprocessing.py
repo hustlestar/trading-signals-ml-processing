@@ -78,7 +78,7 @@ class DataPreprocessor:
         self.add_1_2_3_h_bars_vol_to_history_vol_coef(df)
 
         logging.info("Finished dataframe preparation")
-        logging.info(f"Result DataFrame shape is {df.shape}")
+        logging.info(f"Result DataFrame shape is {df.shape} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
         df = df.reindex(sorted(df.columns), axis=1)
         return df
 
@@ -176,7 +176,7 @@ class DataPreprocessor:
             col_name = f'current_h_vol_to_{day}avg'
             logging.info(f"Adding column {col_name} to df")
             history_vol_cols.append(col_name)
-            df[col_name] = df['current_hour_volume'] / df[k]
+            df[col_name] = df['latest_hour_volume'] / df[k]
         while True:
             yield history_vol_cols
 

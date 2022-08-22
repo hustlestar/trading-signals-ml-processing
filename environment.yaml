@@ -16,3 +16,5 @@ dependencies:
       - bentoml==0.13.1
       - psycopg2
       - python-dotenv
+      - pandas_ta
+      - ta

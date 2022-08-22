@@ -3,10 +3,11 @@ import logging
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
-from sklearn.metrics import accuracy_score, roc_curve, roc_auc_score, confusion_matrix
+from sklearn.metrics import accuracy_score, roc_curve, roc_auc_score, confusion_matrix, precision_score, recall_score
 from sklearn.model_selection import train_test_split
 
 from bentos.service_v1 import SignalClassifierModelService
+from bentos.service_v2 import BagOfClassifierModelsService
 from config import get_connection
 from data.db import execute_sql
 from data.preprocessing import DataPreprocessor
@@ -18,29 +19,40 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 class ModelFactory:
     def __init__(self, model_name=None):
         self.training_dict = {
-            "RandomForestClassifier": ModelFactory.train_random_forest_classifier,
-            "ExtraTreesClassifier": ModelFactory.train_extra_trees_classifier
+            "rfc": ModelFactory.train_random_forest_classifier,
+            "etc": ModelFactory.train_extra_trees_classifier
         }
         self.trained_models = {}
         self.model_name = model_name
 
     @staticmethod
     def train_random_forest_classifier(x, y):
-        x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.1)
-        print(list(x_train.columns))
-        rfc = RandomForestClassifier()
+        x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2)
+        pars = {
+            "n_estimators": 200,
+            'min_samples_split': 2,
+            'min_samples_leaf': 2,
+            'max_samples': 0.8,
+            'max_features': 0.8,
+            "class_weight": "balanced_subsample",
+            "max_depth": 75,
+            "bootstrap": True
+        }
+        rfc = RandomForestClassifier(**pars)
         rfc.fit(x_train, y_train)
         return x_train, x_test, y_train, y_test, rfc
 
     @staticmethod
     def train_extra_trees_classifier(x, y):
-        x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.1)
-        print(list(x_train.columns))
-        pars = {"n_estimators": 500,
-                "min_samples_split": 2,
-                "min_samples_leaf": 2,
-                "class_weight": 'balanced_subsample',
-                "max_features": "sqrt"}
+        x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2)
+        pars = {
+            "n_estimators": 200,
+            "min_samples_split": 2,
+            "min_samples_leaf": 2,
+            "class_weight": "balanced_subsample",
+            "max_depth": 75,
+            "max_features": "sqrt"
+        }
         model = ExtraTreesClassifier(**pars)
         model.fit(x_train, y_train)
         return x_train, x_test, y_train, y_test, model
@@ -71,7 +83,7 @@ class ModelFactory:
         label_cols = ['label_up_return', 'label_down_return']
         raw_x = df.drop(label_cols, axis=1)
         for thr in thresholds:
-            logging.info(f"Training model for {thr} threshold")
+            logging.info(f">>>>>>>>>>>>>>>>>>>Training model for {thr} threshold")
             model_name, label_df = self.prepare_classification_label(df, thr)
             x, x_test, y, y_test, model = self.train_model(raw_x, label_df)
             # Make predictions for the test UP set
@@ -80,15 +92,24 @@ class ModelFactory:
             logging.info(accuracy_score(y_test, y_predictions))
             acc = accuracy_score(y_test, y_predictions)
             logging.info(f"accuracy - {acc}")
+            logging.info(f"precision {precision_score(y_test, y_predictions)}")
             y_pred_proba = model.predict_proba(x_test)[::, 1]
             fpr, tpr, _ = roc_curve(y_test, y_pred_proba)
             auc = roc_auc_score(y_test, y_pred_proba)
             logging.info(f"auc - {auc}")
+            logging.warning(f"recall {recall_score(y_test, y_predictions)}")
             # View confusion matrix for test data and predictions
             matrix = confusion_matrix(y_test, y_predictions)
             logging.info(f"matrix - \n{matrix}")
             self.trained_models[model_name] = model
             logging.info(f'Finished model training for {thr} threshold')
+
+
+def pack_models_to_service(mf: ModelFactory, service):
+    for k, v in mf.trained_models.items():
+        model_name = f"{mf.model_name}_{k}"
+        logging.info(f"Packing model {model_name}")
+        service.pack(model_name, v)
 
 
 if __name__ == '__main__':
@@ -97,15 +118,16 @@ if __name__ == '__main__':
     raw_flat_data = prepare_dataset(flat_notifications_from_sql(notifications))
     data_preprocessor = DataPreprocessor(raw_flat_data, True)
     df = data_preprocessor.provide_ready_df()
-    mf = ModelFactory(model_name="ExtraTreesClassifier")
-    mf.prepare_models(df, [80, 50, 20, -10])
     # artifacts_list = [SklearnModelArtifact(k) for k in mf.trained_models.keys()]
     # model_callable = artifacts(artifacts_list)(RFCClassifierModelService)
     # model = model_callable()
-    service = SignalClassifierModelService()
-    for k, v in mf.trained_models.items():
-        logging.info(f"Packing model {k}")
-        service.pack(k, v)
+    service = BagOfClassifierModelsService()
+    mf = ModelFactory(model_name="etc")
+    mf.prepare_models(df, [80, 50, 20, -10])
+    pack_models_to_service(mf, service)
+    mf = ModelFactory(model_name="rfc")
+    mf.prepare_models(df, [80, 50, 20, -10])
+    pack_models_to_service(mf, service)
     saved_path = service.save()
     logging.info(f'Saved model to {saved_path}')
 

@@ -1,5 +1,10 @@
 import json
 
+from dotenv import dotenv_values
+
+from config import get_connection
+from data.db import execute_sql
+
 
 def flat_notifications_from_sql(notifications):
     return [{
@@ -10,7 +15,11 @@ def flat_notifications_from_sql(notifications):
         "highest_since_notified": float(r[3] if r[3] else 0),
         "lowest_since_notified": float(r[4] if r[4] else 0),
         "basis": json.loads(r[1]),
-        "filter_name": r[2]
+        "filter_name": r[2],
+        "same_signal_in_last_3_hour": r[10],
+        "same_signal_in_last_24_hours": r[11],
+        "same_signal_profit_in_last_3_hours": r[12],
+        "same_signal_profit_in_last_24_hours": r[13],
     } for r in notifications]
 
 
@@ -53,6 +62,26 @@ def process_digits(i):
     return i + 1 if i >= 9 else f"0{i + 1}"
 
 
+def shrink_minutes(minutely):
+    low = 9999999
+    high = 0
+    vol = 0
+    for k, v in minutely.items():
+        if k.endswith('_high') and v > high:
+            high = v
+        if k.endswith('_low') and v < low:
+            low = v
+        if k.endswith('_volume') and v > 0:
+            vol = vol + v
+    return {
+        'latest_hour_open': minutely['current_min_bars_01_open'],
+        'latest_hour_high': high,
+        'latest_hour_low': low,
+        'latest_hour_close': minutely[[k for k in minutely.keys() if k.endswith('_close')][-1]],
+        'latest_hour_volume': vol
+    }
+
+
 def prepare_dataset(notifications):
     res = []
     for n in notifications:
@@ -65,12 +94,55 @@ def prepare_dataset(notifications):
         current_flat = flatten_dict(current, "current_")
         minutely = flatten_bars(current_flat["current_minutelyBars"], "current_min_bars_", reverse=True)
         hourly = flatten_bars(current_flat["current_hourlyBars"], prefix="current_hour_bars_", number_of_bars=48)
+        minutes_as_hour = shrink_minutes(minutely)
         res.append({
             **{k: v for k, v in n.items() if k not in ['basis']},
             **history_flat,
             **{k: v for k, v in current_flat.items() if k not in {"current_minutelyBars", "current_hourlyBars"}},
             **minutely,
+            **minutes_as_hour,
             **hourly,
-            **btc_stats_flat
+            **btc_stats_flat,
+            "same_signal_in_last_3_hour": n["same_signal_in_last_3_hour"] if n.get("same_signal_in_last_3_hour") else 0,
+            "same_signal_in_last_24_hour": n["same_signal_in_last_24_hour"] if n.get("same_signal_in_last_24_hour") else 0,
+            "same_signal_profit_in_last_3_hours": n["same_signal_profit_in_last_3_hours"] if n.get("same_signal_profit_in_last_3_hours") else 0,
+            "same_signal_profit_in_last_24_hours": n["same_signal_profit_in_last_24_hours"] if n.get("same_signal_profit_in_last_24_hours") else 0,
         })
     return res
+
+
+if __name__ == '__main__':
+    conf = dotenv_values("../../.env")
+    conn = get_connection(conf)
+    notifications = execute_sql(conn, """select
+                                   *
+                                   ,(select count(*) from notifications as q where 
+                                     extract(epoch from n.notification_date - q.notification_date) / 60  between 0 and 180
+                                     and q.notification_date < n.notification_date
+                                     and q.ticker = n.ticker 
+                                     and q.filter_name = n.filter_name
+                                   ) as same_signal_in_last_3_hours
+                                   ,(select count(*) from notifications as q where 
+                                     extract(epoch from n.notification_date - q.notification_date) / 60  between 0 and 1440
+                                     and q.notification_date < n.notification_date
+                                     and q.ticker = n.ticker 
+                                     and q.filter_name = n.filter_name
+                                   ) as same_signal_in_last_24_hours
+                                   ,(select TRUNC(sum((n.price - q.price)/ q.price * 100), 2)  from notifications as q where 
+                                     extract(epoch from n.notification_date - q.notification_date) / 60  between 0 and 180
+                                     and q.notification_date < n.notification_date
+                                     and q.ticker = n.ticker 
+                                     and q.filter_name = n.filter_name
+                                   ) as same_signal_profit_in_last_3_hours
+                                   ,(select TRUNC(sum((n.price - q.price)/ q.price * 100), 2)  from notifications as q where 
+                                     extract(epoch from n.notification_date - q.notification_date) / 60  between 0 and 1440
+                                     and q.notification_date < n.notification_date
+                                     and q.ticker = n.ticker 
+                                     and q.filter_name = n.filter_name
+                                   ) as same_signal_profit_in_last_24_hours
+                                   from notifications n
+                                   order by id
+                                   limit 500;""")
+    notifications_list = flat_notifications_from_sql(notifications)
+
+    res = prepare_dataset(notifications_list)

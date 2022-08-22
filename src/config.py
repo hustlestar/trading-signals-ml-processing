@@ -4,12 +4,12 @@ from dotenv import dotenv_values
 conf = dotenv_values(".env")
 
 
-def get_connection(other_conf=None):
+def get_connection(other_conf=None, database=None):
     global conf
     conf = other_conf if other_conf else conf
     return psycopg2.connect(host=conf.get("JDBC_HOST"),
                             port=conf.get("JDBC_PORT"),
-                            database=conf.get("JDBC_DATABASE"),
+                            database=database if database else conf.get("JDBC_DATABASE"),
                             user=conf.get("JDBC_USER_NAME"),
                             password=conf.get("JDBC_PASSWORD"))
 
