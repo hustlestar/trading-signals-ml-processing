@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -53,7 +54,7 @@ class DataPreprocessor:
         df = self.select_only_required_features(df)
         df = DataPreprocessor.add_missing_columns(df)
         if not self.is_train:
-            df = df.drop(['label_up_return', 'label_down_return'], axis=1, errors='ignore')
+            df = df.drop(['LABEL_UP_RETURN', 'LABEL_DOWN_RETURN'], axis=1, errors='ignore')
         # Initial try, with filling df with 0
         df = df.fillna(0)
 
@@ -125,8 +126,8 @@ class DataPreprocessor:
     @staticmethod
     def add_regression_label_columns(df):
         logging.info("Adding regression label columns")
-        df['label_up_return'] = (df['highest_since_notified'] - df['price']) / df['price'] * 100
-        df['label_down_return'] = (df['lowest_since_notified'] - df['price']) / df['price'] * 100
+        df['LABEL_UP_RETURN'] = (df['highest_since_notified'] - df['price']) / df['price'] * 100
+        df['LABEL_DOWN_RETURN'] = (df['lowest_since_notified'] - df['price']) / df['price'] * 100
         return df
 
     @staticmethod
@@ -163,7 +164,32 @@ class DataPreprocessor:
     def add_current_hour_volume(df):
         logging.info("Adding current hour volume")
         curr_vols = [c for c in df.columns if str(c).startswith('current_min') and str(c).endswith('volume')]
-        df['current_hour_volume'] = df[curr_vols].sum(axis=1)
+        df['CURRENT_HOUR_VOLUME'] = df[curr_vols].sum(axis=1)
+
+    # current over -1 hour bar comparison
+    @staticmethod
+    def add_higher_high_col(df, shift=1):
+        current_hourly_bars_cols = [col for col in df if col.startswith('current_hour_bars') and col.endswith('close')]
+
+        current_hourly_bars_cols = sorted(current_hourly_bars_cols, reverse=True)
+        current_hourly_bars_cols.append("latest_hour_close")
+
+        assert len(current_hourly_bars_cols) == 49
+        assert current_hourly_bars_cols[-2] == 'current_hour_bars_01_close'
+
+        print(f"Current hourly bars cols: {len(current_hourly_bars_cols)}")
+        DIGIT_PATTERN = r'\d+'
+        higher_high_cols = []
+        for current, previous in zip(current_hourly_bars_cols[shift:], current_hourly_bars_cols):
+            current_numbers = re.findall(DIGIT_PATTERN, current)
+            current_number = f'HOUR_{current_numbers[0]}_CLOSE' if current_numbers else current
+            previous_numbers = re.findall(DIGIT_PATTERN, previous)
+            previous_number = previous_numbers[0] if previous_numbers else previous
+            is_higher_col = f'{current_number}_HIGHER_THAN_{previous_number}'.upper()
+            df[is_higher_col] = df[current] > df[previous]
+            df[is_higher_col] = df[is_higher_col].astype(int)
+            higher_high_cols.append(is_higher_col)
+        return higher_high_cols
 
     @staticmethod
     def add_current_hour_volume_to_historical_volumes_coef(df):
@@ -173,7 +199,7 @@ class DataPreprocessor:
         print(history_stats_vol_cols)
         for k in history_stats_vol_cols:
             day = k.lstrip('history_statsMap_-').rstrip('avg1HourVolume')
-            col_name = f'current_h_vol_to_{day}avg'
+            col_name = f'CURRENT_H_VOL_TO_{day}AVG'.upper()
             logging.info(f"Adding column {col_name} to df")
             history_vol_cols.append(col_name)
             df[col_name] = df['latest_hour_volume'] / df[k]
@@ -182,25 +208,25 @@ class DataPreprocessor:
 
     @staticmethod
     def add_change_since_1_2_3_hours_back(df):
-        latest_close_cols = ['change_since_01_hour_bars', 'change_since_02_hour_bars', 'change_since_03_hour_bars']
-        df['change_since_01_hour_bars'] = (df['price'] - df['current_hour_bars_01_close']) / df['current_hour_bars_01_close'] * 100
-        df['change_since_02_hour_bars'] = (df['price'] - df['current_hour_bars_02_close']) / df['current_hour_bars_02_close'] * 100
-        df['change_since_03_hour_bars'] = (df['price'] - df['current_hour_bars_03_close']) / df['current_hour_bars_03_close'] * 100
-        df_change_since_previous = df[[*latest_close_cols, 'label_up_return', 'label_down_return']]
+        latest_close_cols = ['CHANGE_SINCE_01_HOUR_BARS', 'CHANGE_SINCE_02_HOUR_BARS', 'CHANGE_SINCE_03_HOUR_BARS']
+        df['CHANGE_SINCE_01_HOUR_BARS'] = (df['price'] - df['current_hour_bars_01_close']) / df['current_hour_bars_01_close'] * 100
+        df['CHANGE_SINCE_02_HOUR_BARS'] = (df['price'] - df['current_hour_bars_02_close']) / df['current_hour_bars_02_close'] * 100
+        df['CHANGE_SINCE_03_HOUR_BARS'] = (df['price'] - df['current_hour_bars_03_close']) / df['current_hour_bars_03_close'] * 100
+        df_change_since_previous = df[[*latest_close_cols, 'LABEL_UP_RETURN', 'LABEL_DOWN_RETURN']]
         while True:
             yield df_change_since_previous
 
     @staticmethod
     def add_1_2_3_h_bars_vol_to_history_vol_coef(df):
-        df['_01_h_bars_vol_to_28d_avg_h_vol'] = df['current_hour_bars_01_volume'] / df['history_statsMap_-28_days_avg1HourVolume']
-        df['_02_h_bars_vol_to_28d_avg_h_vol'] = df['current_hour_bars_02_volume'] / df['history_statsMap_-28_days_avg1HourVolume']
-        df['_03_h_bars_vol_to_28d_avg_h_vol'] = df['current_hour_bars_03_volume'] / df['history_statsMap_-28_days_avg1HourVolume']
+        df['_01_H_BARS_VOL_TO_28D_AVG_H_VOL'] = df['current_hour_bars_01_volume'] / df['history_statsMap_-28_days_avg1HourVolume']
+        df['_02_H_BARS_VOL_TO_28D_AVG_H_VOL'] = df['current_hour_bars_02_volume'] / df['history_statsMap_-28_days_avg1HourVolume']
+        df['_03_H_BARS_VOL_TO_28D_AVG_H_VOL'] = df['current_hour_bars_03_volume'] / df['history_statsMap_-28_days_avg1HourVolume']
 
     @staticmethod
     def remove_outliers(df, history_vol_cols, part=0.01):
         # cleaning outliers in data
-        df_vol = df[[*next(history_vol_cols), 'label_up_return', 'label_down_return']]
-        x = df_vol.drop(['label_up_return', 'label_down_return'], 1)
+        df_vol = df[[*next(history_vol_cols), 'LABEL_UP_RETURN', 'LABEL_DOWN_RETURN']]
+        x = df_vol.drop(['LABEL_UP_RETURN', 'LABEL_DOWN_RETURN'], 1)
         # cleaning outliers in data
         df_vol_coef_clean = df[((x > x.quantile(part)) & (x < x.quantile(1 - part))).all(1)]
         while True:
@@ -216,3 +242,99 @@ class DataPreprocessor:
     def remove_corrupt_data(df):
         # data in this range is broken due to the upstream bug
         return df[(df["id"] < 13865) | (df["id"] > 16787)]
+
+    @staticmethod
+    def drop_minutely_bar_cols(df):
+        current_min_bars_cols = [col for col in df if col.startswith('current_min_bars')]
+        # should be 60 * 5
+        assert len(current_min_bars_cols) == 60 * 5
+        df = df.drop(current_min_bars_cols, axis=1)
+        return df
+
+    @staticmethod
+    def drop_hourly_bar_ohl_cols(df):
+        current_hourly_bars_partly_cols = [col for col in df if col.startswith('current_hour_bars') and not col.endswith('close') and not col.endswith('volume')]
+        # should be 48 * 3
+        assert len(current_hourly_bars_partly_cols) == 48 * 3
+        df = df.drop(current_hourly_bars_partly_cols, axis=1)
+        return df
+
+    @staticmethod
+    def drop_history_stats_map_ohl_cols(df):
+        history_stats_map__bars_partly_cols = [col for col in df if col.startswith('history_statsMap')
+                                               and not col.endswith('close')
+                                               and not col.endswith('Volume')
+                                               and not col.endswith('changeRate')
+                                               ]
+        # should be 48 * 3
+        assert len(history_stats_map__bars_partly_cols) == 30
+        df = df.drop(history_stats_map__bars_partly_cols, axis=1)
+        return df
+
+    @staticmethod
+    def drop_btc_stats_map_ol_cols(df):
+        btc_stats_stats_map_bars_partly_cols = [col for col in df if col.startswith('btc_stats_statsMap_')
+                                                and not col.endswith('high')
+                                                and not col.endswith('close')
+                                                and not col.endswith('Volume')
+                                                and not col.endswith('changeRate')
+                                                ]
+        # should be 48 * 3
+        assert len(btc_stats_stats_map_bars_partly_cols) == 22
+        df = df.drop(btc_stats_stats_map_bars_partly_cols, axis=1)
+        return df
+
+    @staticmethod
+    def drop_highly_correlated_features(df):
+        highly_correlated_cols = [
+            'btc_stats_statsMap_-10_days_close',
+            'btc_stats_statsMap_-12_hours_close',
+            'btc_stats_statsMap_-14_days_close',
+            'btc_stats_statsMap_-20_days_close',
+            'btc_stats_statsMap_-24_hours_close',
+            'btc_stats_statsMap_-3_days_close',
+            'btc_stats_statsMap_-5_days_close',
+            'btc_stats_statsMap_-6_hours_close',
+            'btc_stats_statsMap_-7_days_close',
+            'history_statsMap_-10_days_close',
+            'history_statsMap_-12_hours_close',
+            'history_statsMap_-14_days_close',
+            'history_statsMap_-20_days_close',
+            'history_statsMap_-24_hours_close',
+            'history_statsMap_-3_days_close',
+            'history_statsMap_-5_days_close',
+            'history_statsMap_-6_hours_close',
+            'history_statsMap_-7_days_close',
+            'current_lastMinutelyBar_close',
+            'current_previousMinutelyBar_close',
+            'current_previousMinutelyBar_high',
+            'current_previousMinutelyBar_low',
+            'current_previousMinutelyBar_open',
+            'current_previousMinutelyBar_volume'
+        ]
+        df = df.drop(highly_correlated_cols, axis=1)
+        return df
+
+    @staticmethod
+    def drop_highly_missing_features(df):
+        sparse_features = ['current_hour_bars_40_close',
+                           'current_hour_bars_40_volume',
+                           'current_hour_bars_41_close',
+                           'current_hour_bars_41_volume',
+                           'current_hour_bars_42_close',
+                           'current_hour_bars_42_volume',
+                           'current_hour_bars_43_close',
+                           'current_hour_bars_43_volume',
+                           'current_hour_bars_44_close',
+                           'current_hour_bars_44_volume',
+                           'current_hour_bars_45_close',
+                           'current_hour_bars_45_volume',
+                           'current_hour_bars_46_close',
+                           'current_hour_bars_46_volume',
+                           'current_hour_bars_47_close',
+                           'current_hour_bars_47_volume',
+                           'current_hour_bars_48_close',
+                           'current_hour_bars_48_volume'
+                           ]
+        df = df.drop(sparse_features, axis=1)
+        return df

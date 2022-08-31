@@ -6,3 +6,5 @@
 data
 *.pkl
 out
+/src/debug/
+/src/lol.parquet

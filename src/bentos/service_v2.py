@@ -4,8 +4,8 @@ from bentoml import env, artifacts, api, BentoService
 from bentoml.adapters import JsonInput, JsonOutput
 from bentoml.frameworks.sklearn import SklearnModelArtifact
 
+from data.notifcation_preparation import prepare_dataset, flat_notifications_from_json
 from data.preprocessing import DataPreprocessor
-from data.notifcation_preparation import prepare_dataset, flat_notifications_from_sql, flat_notifications_from_json
 
 
 @env(infer_pip_packages=True)
@@ -20,9 +20,6 @@ from data.notifcation_preparation import prepare_dataset, flat_notifications_fro
     SklearnModelArtifact('rfc_down_10_return'),
 ])
 class BagOfClassifierModelsService(BentoService):
-    """
-    A minimum prediction service exposing a Scikit-learn model
-    """
     def __init__(self):
         super(BagOfClassifierModelsService, self).__init__()
 
@@ -41,6 +38,9 @@ class BagOfClassifierModelsService(BentoService):
         res = {}
         for k, v in self.artifacts.items():
             print(f"Predicting using {k}")
-            res[k] = v.get().predict(ready_df)[0]
+            try:
+                res[k] = v.get().predict(ready_df)[0]
+            except Exception as x:
+                print(f"Exception during predict for {k}:\n{x}")
         print(f"Predictions result is \n{res}")
         return res
