@@ -50,5 +50,6 @@ def _my_willr(high, low, close, length=None, talib=None, offset=None, **kwargs):
     lowest_low = lowest_low.set_axis(new_axis)
     highest_high = high.rolling(length, min_periods=min_periods).max()
     highest_high = highest_high.set_axis(new_axis)
-    willr = 100 * ((close - lowest_low) / (highest_high - lowest_low) - 1)
+    divisor = highest_high - lowest_low
+    willr = 100 * ((close - lowest_low) / divisor - 1)
     return willr

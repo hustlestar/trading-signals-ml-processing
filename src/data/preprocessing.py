@@ -2,9 +2,11 @@ import logging
 import re
 from datetime import datetime, timedelta
 
+import numpy as np
 import pandas as pd
 
 from config import SELECTED_FEATURES
+from indicators.core import add_all_indicators_to_df
 
 HOURS_TILL_ELIGIBLE = 30
 
@@ -16,7 +18,7 @@ class DataPreprocessor:
 
     def provide_ready_df(self, df=None) -> pd.DataFrame:
         logging.info(f"Starting data preprocessing, training mode - {self.is_train}")
-        if df:
+        if df is not None:
             raw_df = df
         else:
             raw_flat_data = self.raw_flat_data
@@ -30,16 +32,14 @@ class DataPreprocessor:
         if self.is_train:
             df = DataPreprocessor.remove_corrupt_data(df)
             # remove semi missing data 2022-05-11 to 2022-05-24
-            df = DataPreprocessor.remove_date_range(
-                df,
-                datetime.fromisoformat("2022-05-11"),
-                datetime.fromisoformat("2022-05-24")
-            )
+            df = DataPreprocessor.remove_date_range(df,
+                                                    datetime.fromisoformat("2022-05-11"),
+                                                    datetime.fromisoformat("2022-05-24")
+                                                    )
             # remove semi missing data 2022-06-30 16:30 to 2022-07-02 11:17
-            df = DataPreprocessor.remove_date_range(
-                df,
-                datetime.fromisoformat("2022-06-30 16:30"),
-                datetime.fromisoformat("2022-07-02 11:17"))
+            df = DataPreprocessor.remove_date_range(df,
+                                                    datetime.fromisoformat("2022-06-30 16:30"),
+                                                    datetime.fromisoformat("2022-07-02 11:17"))
             # removing all notifications which are recent, because data is not complete for them
             df = DataPreprocessor.remove_most_recent_data(df)
 
@@ -50,15 +50,30 @@ class DataPreprocessor:
         if self.is_train:
             df = df.drop_duplicates(keep='first')
 
-        # df = self.drop_columns_having_same_values(df)
-        df = self.select_only_required_features(df)
-        df = DataPreprocessor.add_missing_columns(df)
+        DataPreprocessor.add_higher_high_col(df)
+        DataPreprocessor.add_higher_high_col(df, 5)
+        DataPreprocessor.add_higher_high_col(df, 10)
+        DataPreprocessor.add_higher_high_col(df, 20)
+        DataPreprocessor.add_higher_high_col(df, 40)
+
+        DataPreprocessor.replace_negative_volumes(df)
+
+        df = add_all_indicators_to_df(df)
+
+        df = DataPreprocessor.drop_minutely_bar_cols(df, is_train=self.is_train)
+        df = DataPreprocessor.drop_hourly_bar_ohl_cols(df, is_train=self.is_train)
+        df = DataPreprocessor.drop_btc_stats_map_ol_cols(df, is_train=self.is_train)
+        df = DataPreprocessor.drop_history_stats_map_ohl_cols(df, is_train=self.is_train)
+        df = DataPreprocessor.drop_highly_correlated_features(df)
+        df = DataPreprocessor.drop_highly_missing_features(df)
+
+        if not self.is_train:
+            df = DataPreprocessor.add_missing_columns(df)
+        # df = DataPreprocessor.add_missing_columns(df)
         if not self.is_train:
             df = df.drop(['LABEL_UP_RETURN', 'LABEL_DOWN_RETURN'], axis=1, errors='ignore')
         # Initial try, with filling df with 0
         df = df.fillna(0)
-
-        DataPreprocessor.replace_negative_volumes(df)
 
         DataPreprocessor.add_current_hour_volume(df)
 
@@ -77,6 +92,7 @@ class DataPreprocessor:
         DataPreprocessor.add_change_since_1_2_3_hours_back(df)
 
         self.add_1_2_3_h_bars_vol_to_history_vol_coef(df)
+        df = DataPreprocessor.clean_dataset(df)
 
         logging.info("Finished dataframe preparation")
         logging.info(f"Result DataFrame shape is {df.shape} <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
@@ -118,9 +134,6 @@ class DataPreprocessor:
     @staticmethod
     def add_missing_columns(df):
         df = df.reindex(columns=SELECTED_FEATURES)
-        # for f in SELECTED_FEATURES:
-        #     if f not in df.columns:
-        #         df[f] = 0
         return df
 
     @staticmethod
@@ -157,7 +170,7 @@ class DataPreprocessor:
         # if volume is negative - replace with zero
         logging.info("Replacing negative volumes in df")
         for c in df.columns:
-            if c.endswith('_volume'):
+            if c.endswith('_volume') or c.endswith('_VOLUME'):
                 df[c] = df[c].apply(lambda x: x if x > 0 else 0)
 
     @staticmethod
@@ -168,14 +181,15 @@ class DataPreprocessor:
 
     # current over -1 hour bar comparison
     @staticmethod
-    def add_higher_high_col(df, shift=1):
+    def add_higher_high_col(df, shift=1, is_train=False):
+        logging.info(f"Adding higher high columns to df of shape {df.shape} with shift of {shift}")
         current_hourly_bars_cols = [col for col in df if col.startswith('current_hour_bars') and col.endswith('close')]
 
         current_hourly_bars_cols = sorted(current_hourly_bars_cols, reverse=True)
         current_hourly_bars_cols.append("latest_hour_close")
-
-        assert len(current_hourly_bars_cols) == 49
-        assert current_hourly_bars_cols[-2] == 'current_hour_bars_01_close'
+        if is_train:
+            assert len(current_hourly_bars_cols) == 49
+            assert current_hourly_bars_cols[-2] == 'current_hour_bars_01_close'
 
         print(f"Current hourly bars cols: {len(current_hourly_bars_cols)}")
         DIGIT_PATTERN = r'\d+'
@@ -244,43 +258,47 @@ class DataPreprocessor:
         return df[(df["id"] < 13865) | (df["id"] > 16787)]
 
     @staticmethod
-    def drop_minutely_bar_cols(df):
+    def drop_minutely_bar_cols(df, is_train=False):
         current_min_bars_cols = [col for col in df if col.startswith('current_min_bars')]
-        # should be 60 * 5
-        assert len(current_min_bars_cols) == 60 * 5
+        if is_train:
+            # should be 60 * 5
+            assert len(current_min_bars_cols) == 60 * 5
         df = df.drop(current_min_bars_cols, axis=1)
         return df
 
     @staticmethod
-    def drop_hourly_bar_ohl_cols(df):
+    def drop_hourly_bar_ohl_cols(df, is_train=False):
         current_hourly_bars_partly_cols = [col for col in df if col.startswith('current_hour_bars') and not col.endswith('close') and not col.endswith('volume')]
-        # should be 48 * 3
-        assert len(current_hourly_bars_partly_cols) == 48 * 3
+        if is_train:
+            # should be 48 * 3
+            assert len(current_hourly_bars_partly_cols) == 48 * 3
         df = df.drop(current_hourly_bars_partly_cols, axis=1)
         return df
 
     @staticmethod
-    def drop_history_stats_map_ohl_cols(df):
+    def drop_history_stats_map_ohl_cols(df, is_train=False):
         history_stats_map__bars_partly_cols = [col for col in df if col.startswith('history_statsMap')
                                                and not col.endswith('close')
                                                and not col.endswith('Volume')
                                                and not col.endswith('changeRate')
                                                ]
-        # should be 48 * 3
-        assert len(history_stats_map__bars_partly_cols) == 30
+        if is_train:
+            # should be 48 * 3
+            assert len(history_stats_map__bars_partly_cols) == 30
         df = df.drop(history_stats_map__bars_partly_cols, axis=1)
         return df
 
     @staticmethod
-    def drop_btc_stats_map_ol_cols(df):
+    def drop_btc_stats_map_ol_cols(df, is_train=False):
         btc_stats_stats_map_bars_partly_cols = [col for col in df if col.startswith('btc_stats_statsMap_')
                                                 and not col.endswith('high')
                                                 and not col.endswith('close')
                                                 and not col.endswith('Volume')
                                                 and not col.endswith('changeRate')
                                                 ]
-        # should be 48 * 3
-        assert len(btc_stats_stats_map_bars_partly_cols) == 22
+        if is_train:
+            # should be 48 * 3
+            assert len(btc_stats_stats_map_bars_partly_cols) == 22
         df = df.drop(btc_stats_stats_map_bars_partly_cols, axis=1)
         return df
 
@@ -317,7 +335,27 @@ class DataPreprocessor:
 
     @staticmethod
     def drop_highly_missing_features(df):
-        sparse_features = ['current_hour_bars_40_close',
+        sparse_features = ['current_hour_bars_30_close',
+                           'current_hour_bars_30_volume',
+                           'current_hour_bars_31_close',
+                           'current_hour_bars_31_volume',
+                           'current_hour_bars_32_close',
+                           'current_hour_bars_32_volume',
+                           'current_hour_bars_33_close',
+                           'current_hour_bars_33_volume',
+                           'current_hour_bars_34_close',
+                           'current_hour_bars_34_volume',
+                           'current_hour_bars_35_close',
+                           'current_hour_bars_35_volume',
+                           'current_hour_bars_36_close',
+                           'current_hour_bars_36_volume',
+                           'current_hour_bars_37_close',
+                           'current_hour_bars_37_volume',
+                           'current_hour_bars_38_close',
+                           'current_hour_bars_38_volume',
+                           'current_hour_bars_39_close',
+                           'current_hour_bars_39_volume',
+                           'current_hour_bars_40_close',
                            'current_hour_bars_40_volume',
                            'current_hour_bars_41_close',
                            'current_hour_bars_41_volume',
@@ -338,3 +376,10 @@ class DataPreprocessor:
                            ]
         df = df.drop(sparse_features, axis=1)
         return df
+
+    @staticmethod
+    def clean_dataset(df):
+        assert isinstance(df, pd.DataFrame), "df needs to be a pd.DataFrame"
+        df.dropna(inplace=True)
+        indices_to_keep = ~df.isin([np.nan, np.inf, -np.inf]).any(1)
+        return df[indices_to_keep].astype(np.float64)

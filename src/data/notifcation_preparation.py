@@ -1,4 +1,5 @@
 import json
+import logging
 
 from dotenv import dotenv_values
 
@@ -82,7 +83,7 @@ def shrink_minutes(minutely):
     }
 
 
-def prepare_dataset(notifications):
+def prepare_raw_dataset(notifications):
     res = []
     for n in notifications:
         basis = n['basis']
@@ -95,6 +96,7 @@ def prepare_dataset(notifications):
         minutely = flatten_bars(current_flat["current_minutelyBars"], "current_min_bars_", reverse=True)
         hourly = flatten_bars(current_flat["current_hourlyBars"], prefix="current_hour_bars_", number_of_bars=48)
         minutes_as_hour = shrink_minutes(minutely)
+        logging.info(f"minutes as hour:\n{minutes_as_hour}")
         res.append({
             **{k: v for k, v in n.items() if k not in ['basis']},
             **history_flat,
@@ -145,4 +147,4 @@ if __name__ == '__main__':
                                    limit 500;""")
     notifications_list = flat_notifications_from_sql(notifications)
 
-    res = prepare_dataset(notifications_list)
+    res = prepare_raw_dataset(notifications_list)

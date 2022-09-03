@@ -4,7 +4,7 @@ import logging
 logging.basicConfig(level=logging.ERROR)
 
 from config import get_connection
-from data.notifcation_preparation import prepare_dataset, flat_notifications_from_json
+from data.notifcation_preparation import prepare_raw_dataset, flat_notifications_from_json
 from data.db import execute_sql
 import json
 

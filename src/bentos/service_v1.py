@@ -5,7 +5,7 @@ from bentoml.adapters import JsonInput, JsonOutput
 from bentoml.frameworks.sklearn import SklearnModelArtifact
 
 from data.preprocessing import DataPreprocessor
-from data.notifcation_preparation import prepare_dataset, flat_notifications_from_sql, flat_notifications_from_json
+from data.notifcation_preparation import prepare_raw_dataset, flat_notifications_from_sql, flat_notifications_from_json
 
 
 @env(infer_pip_packages=True)
@@ -30,7 +30,7 @@ class SignalClassifierModelService(BentoService):
         inference API function input
         """
         print(f"Input is notification {notification['id']}")
-        raw_flat_data = prepare_dataset(flat_notifications_from_json([notification]))
+        raw_flat_data = prepare_raw_dataset(flat_notifications_from_json([notification]))
         data_preprocessor = DataPreprocessor(raw_flat_data, False)
         ready_df = data_preprocessor.provide_ready_df()
         print("Finished preprocessing for input")
